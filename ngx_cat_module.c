@@ -126,10 +126,33 @@ ngx_cat_header_filter(ngx_http_request_t *r)
 	conf = ngx_http_get_module_loc_conf(r, ngx_cat_filter_module);
 	
 	if(conf->enable == 1){
+		char buf[100];
+		int p = 0;
+		memset(buf, 0, 100);
+	 	unsigned int time = ngx_current_msec - (r->start_sec * 1000 + r->start_msec);
+		ngx_memcpy(buf + p, "?request_time=", strlen("?request_time="));
+		p = p + strlen("?request_time=");
+		sprintf(buf + p, "%u", time);
+		p = strlen(buf);
 		size_t i;
 		for(i = 0; i < r->headers_out.headers.part.nelts; i++){
-			if(ngx_strncmp(((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].key.data,"X-CAT-ROOT-ID",((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].key.len)){
-				ngx_memcpy(((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.data, "200", 3);
+			if(!ngx_strncmp(((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].key.data,"X-CAT-ROOT-ID",((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].key.len)){
+				ngx_memcpy(buf + p, "&X-CAT-ROOT-ID=", strlen("&X-CAT-ROOT-ID="));
+				p = p + strlen("&X-CAT-ROOT-ID=");
+				ngx_memcpy(buf + p, ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.data, ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.len );
+				p = p + ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.len;
+			}
+			else if(!ngx_strncmp(((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].key.data,"X-CAT-PARENT-ID",((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].key.len)){
+				ngx_memcpy(buf + p, "&X-CAT-PARENT-ID=", strlen("&X-CAT-PARENT-ID="));
+				p = p + strlen("&X-CAT-PARENT-ID=");
+				ngx_memcpy(buf + p, ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.data, ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.len );
+				p = p + ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.len;
+			}
+			else if(!ngx_strncmp(((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].key.data,"X-CAT-ID",((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].key.len)){
+				ngx_memcpy(buf + p, "&X-CAT-ID=", strlen("&X-CAT-ID="));
+				p = p + strlen("&X-CAT-ID=");
+				ngx_memcpy(buf + p, ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.data, ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.len );
+				p = p + ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.len;
 			}
 		}
 #if SHARE_MEMORY
@@ -140,11 +163,7 @@ ngx_cat_header_filter(ngx_http_request_t *r)
 		node->cat_item = push_num++;
 		ngx_queue_insert_tail(&ctx->shqueue->queue, &node->queue);
 #else
-		char buf[100];
-		memset(buf, 0, 100);
-		sprintf(buf, "%lu", push_num); 
 		write(pipefd[1], buf, 100);
-		push_num ++;
 #endif
 	}
 	return ngx_http_next_header_filter(r);

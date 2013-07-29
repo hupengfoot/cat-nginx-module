@@ -9,10 +9,8 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
-#define SHARE_MEMORY 0
 
 
-long push_num = 0;
 int pipefd[2]; 
 
 typedef struct {

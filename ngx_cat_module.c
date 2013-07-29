@@ -13,49 +13,18 @@
 
 
 long push_num = 0;
-#if SHARE_MEMORY
-#define CAT_SHM_SIZE 1024*1024
-
-typedef struct {
-	ngx_flag_t          enable;
-	ngx_shm_zone_t		*shm_zone; 
-} ngx_http_cat_t;
-
-typedef struct{
-	ngx_queue_t			queue;
-} ngx_cat_send_queue_t;
-
-typedef struct{
-	ngx_cat_send_queue_t		*shqueue;
-	ngx_slab_pool_t             *shpool;
-} ngx_cat_ctx_t;
-
-typedef struct{
-	ngx_int_t			cat_item;
-	ngx_queue_t			queue;
-} ngx_cat_node_t;
-
-ngx_cat_ctx_t	*shctx;
-ngx_queue_t		*shqueue;
-ngx_slab_pool_t	*shpool;
-
-#else
 int pipefd[2]; 
 
 typedef struct {
 	ngx_flag_t          enable;
 } ngx_http_cat_t;
 
-#endif
 
 
 static ngx_int_t ngx_cat_filter_init(ngx_conf_t *cf);
 static ngx_int_t ngx_cat_header_filter(ngx_http_request_t *r);
 static void * ngx_cat_create_conf(ngx_conf_t *cf);
 static char * ngx_cat_merge_conf(ngx_conf_t *cf, void *parent, void *child);
-#if SHARE_MEMORY
-static ngx_int_t ngx_cat_init_zone(ngx_shm_zone_t *shm_zone, void *data);
-#endif
 static char * ngx_http_cat(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
 static ngx_command_t  ngx_cat_filter_commands[] = {
@@ -118,17 +87,12 @@ ngx_cat_filter_init(ngx_conf_t *cf)
 ngx_cat_header_filter(ngx_http_request_t *r)
 {
 	ngx_http_cat_t  *conf;
-#if SHARE_MEMORY
-	ngx_cat_node_t	*node;
-	ngx_cat_ctx_t	*ctx;
-	ctx = shctx;
-#endif
 	conf = ngx_http_get_module_loc_conf(r, ngx_cat_filter_module);
 	
 	if(conf->enable == 1){
-		char buf[100];
+		char buf[200];
 		int p = 0;
-		memset(buf, 0, 100);
+		memset(buf, 0, 200);
 	 	unsigned int time = ngx_current_msec - (r->start_sec * 1000 + r->start_msec);
 		ngx_memcpy(buf + p, "?request_time=", strlen("?request_time="));
 		p = p + strlen("?request_time=");
@@ -155,16 +119,10 @@ ngx_cat_header_filter(ngx_http_request_t *r)
 				p = p + ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.len;
 			}
 		}
-#if SHARE_MEMORY
-		node = ngx_slab_alloc(ctx->shpool, sizeof(ngx_cat_node_t));
-		if(node == NULL){
-			return ngx_http_next_header_filter(r);
-		}
-		node->cat_item = push_num++;
-		ngx_queue_insert_tail(&ctx->shqueue->queue, &node->queue);
-#else
-		write(pipefd[1], buf, 100);
-#endif
+		ngx_memcpy(buf + p, "&status=", strlen("&status="));
+		p = p + strlen("&status=");
+		sprintf(buf + p, "%u", (unsigned int)r->headers_out.status);
+		write(pipefd[1], buf, 200);
 	}
 	return ngx_http_next_header_filter(r);
 }
@@ -202,62 +160,14 @@ ngx_cat_merge_conf(ngx_conf_t *cf, void *parent, void *child)
 	return NGX_CONF_OK;
 }
 
-#if SHARE_MEMORY
-static ngx_int_t
-ngx_cat_init_zone(ngx_shm_zone_t *shm_zone, void *data){
-
-	shctx = shm_zone->data;
-
-	shctx->shpool = (ngx_slab_pool_t *) shm_zone->shm.addr;
-	shctx->shqueue = ngx_slab_alloc(shctx->shpool, sizeof(ngx_cat_send_queue_t));
-	if (shctx->shqueue == NULL) {
-		return NGX_ERROR;
-	}
-
-	shctx->shpool->data = shctx->shqueue;
-	ngx_queue_init(&shctx->shqueue->queue);
-	shqueue = &(shctx->shqueue->queue);
-	if(ngx_init_shqueue() == -1){
-		return NGX_ERROR;
-	}
-	shpool = shctx->shpool;
-	return NGX_OK;
-}
-#endif
 
 static char * ngx_http_cat(ngx_conf_t *cf, ngx_command_t *cmd, void *conf){
-#if SHARE_MEMORY
-	ngx_shm_zone_t	*shm_zone;
-	ngx_cat_ctx_t	*ctx;
-	ngx_str_t		s, *value;
-	value = cf->args->elts;
-	s.len = value[0].len;
-	s.data = value[0].data;
-
-	ctx = ngx_pcalloc(cf->pool, sizeof(ngx_cat_ctx_t));
-	if (ctx == NULL) {
-		return NGX_CONF_ERROR;
-	}
-#endif
 	ngx_http_cat_t	*cat = conf;
-#if SHARE_MEMORY
-	shm_zone = NULL;
-	shm_zone = ngx_shared_memory_add(cf, &s, CAT_SHM_SIZE, &ngx_cat_filter_module);
-
-	if (shm_zone == NULL) {
-		return NGX_CONF_ERROR;
-	}
-
-	shm_zone->init = ngx_cat_init_zone;
-	shm_zone->data = ctx;
-	cat->shm_zone = shm_zone;
-#else
 	if (pipe(pipefd) == -1) {
                perror("pipe");
                exit(EXIT_FAILURE);
     }
 	//fcntl(pipefd[1],F_SETFL,O_NONBLOCK);
-#endif
 	cat->enable = 1;
 
 	return NGX_CONF_OK;

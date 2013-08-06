@@ -22,6 +22,7 @@ typedef struct {
 unsigned long start_upstream_sec = 0;
 unsigned long start_upstream_msec = 0;
 unsigned int response_start_msec = 0;
+unsigned int send_times = 0;
 
 static ngx_int_t ngx_cat_filter_init(ngx_conf_t *cf);
 static ngx_int_t ngx_cat_body_filter(ngx_http_request_t *r, ngx_chain_t *chain);
@@ -116,6 +117,7 @@ ngx_cat_body_filter(ngx_http_request_t *r, ngx_chain_t *chain)
 	conf = ngx_http_get_module_loc_conf(r, ngx_cat_filter_module);
 
 	if(conf->enable == 1){
+		send_times ++;
 		if(r->upstream->state->response_length){
 			char buf[SENDOUTBUFSIZE];
 			int p = 0;
@@ -169,6 +171,27 @@ ngx_cat_body_filter(ngx_http_request_t *r, ngx_chain_t *chain)
 			p = p + strlen("&status=");
 			sprintf(buf + p, "%u", (unsigned int)r->headers_out.status);
 			p = strlen(buf);
+
+			ngx_memcpy(buf + p, "&response_body_len=", strlen("&response_body_len="));
+			p = p + strlen("&response_body_len=");
+			sprintf(buf + p, "%u", (unsigned int)r->upstream->state->response_length);
+			p = strlen(buf);
+
+			ngx_memcpy(buf + p, "&response_header_len=", strlen("&response_header_len="));
+			p = p + strlen("&response_header_len=");
+			sprintf(buf + p, "%d", (int)r->header_size);
+			p = strlen(buf);
+
+			ngx_memcpy(buf + p, "&request_header_len=", strlen("&request_header_len="));
+			p = p + strlen("&request_header_len=");
+			sprintf(buf + p, "%u", (unsigned int)r->request_length);
+			p = strlen(buf);
+
+			char send_times_buf[40];
+			memset(send_times_buf, 0, 40);
+			sprintf(send_times_buf, "%u", send_times - 1);
+			put_string_to_buf(buf, "&send_times=", send_times_buf, &p);
+			send_times = 0;
 			
 			size_t i;
 			for(i = 0; i < r->headers_out.headers.part.nelts; i++){

@@ -14,6 +14,7 @@
 #define SENDOUTBUFSIZE 400
 #define TAB "\t"
 #define NEWLINE "\n"
+#define MODULE_NAME "Nginx"
 
 int pipefd[2]; 
 
@@ -23,7 +24,7 @@ typedef struct {
 
 unsigned long start_upstream_sec = 0;
 unsigned long start_upstream_msec = 0;
-unsigned int response_start_msec = 0;
+unsigned long response_start_msec = 0;
 unsigned int send_times = 0;
 
 static ngx_int_t ngx_cat_filter_init(ngx_conf_t *cf);
@@ -130,6 +131,11 @@ ngx_cat_body_filter(ngx_http_request_t *r, ngx_chain_t *chain)
 				memset(buf + p - 1,'\n', 1);
 			}
 
+			ngx_memcpy(buf + p, MODULE_NAME, strlen(MODULE_NAME));
+			p = p + strlen(MODULE_NAME);
+			ngx_memcpy(buf + p, TAB, strlen(TAB));
+			p ++;
+
 			sprintf(buf + p, "%u", (unsigned int)r->headers_out.status);
 			p = strlen(buf);
 			ngx_memcpy(buf + p, TAB, strlen(TAB));
@@ -178,7 +184,7 @@ ngx_cat_body_filter(ngx_http_request_t *r, ngx_chain_t *chain)
 			start_upstream_sec = 0;
 			start_upstream_msec = 0;
 
-			sprintf(buf + p, "%u", response_start_msec);
+			sprintf(buf + p, "%lu", response_start_msec);
 			p = strlen(buf);
 			ngx_memcpy(buf + p, TAB, strlen(TAB));
 			p ++;
@@ -195,8 +201,6 @@ ngx_cat_body_filter(ngx_http_request_t *r, ngx_chain_t *chain)
 			ngx_memcpy(buf + p, TAB, strlen(TAB));
 			p ++;
 
-			ngx_memcpy(buf + p, NEWLINE, strlen(NEWLINE));
-			p ++;
 			ngx_memcpy(buf + p, NEWLINE, strlen(NEWLINE));
 			p ++;
 			

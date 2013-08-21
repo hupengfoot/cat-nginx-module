@@ -181,8 +181,6 @@ ngx_cat_body_filter(ngx_http_request_t *r, ngx_chain_t *chain)
 			p = strlen(buf);
 			ngx_memcpy(buf + p, TAB, strlen(TAB));
 			p ++;
-			start_upstream_sec = 0;
-			start_upstream_msec = 0;
 
 			sprintf(buf + p, "%lu", response_start_msec);
 			p = strlen(buf);
@@ -190,19 +188,21 @@ ngx_cat_body_filter(ngx_http_request_t *r, ngx_chain_t *chain)
 			p ++;
 			response_start_msec = 0;
 
-			sprintf(buf + p, "%lu", r->upstream->state->response_sec * 1000 + r->upstream->state->response_msec);
+			sprintf(buf + p, "%lu", start_upstream_sec * 1000 + start_upstream_msec + r->upstream->state->response_sec * 1000 + r->upstream->state->response_msec);
 			p = strlen(buf);
 			ngx_memcpy(buf + p, TAB, strlen(TAB));
 			p ++;
 
-			unsigned int time = ngx_current_msec - (r->start_sec * 1000 + r->start_msec);
-			sprintf(buf + p, "%u", time);
+			unsigned long time = ngx_current_msec;
+			sprintf(buf + p, "%lu", time);
 			p = strlen(buf);
 			ngx_memcpy(buf + p, TAB, strlen(TAB));
 			p ++;
 
 			ngx_memcpy(buf + p, NEWLINE, strlen(NEWLINE));
 			p ++;
+			start_upstream_sec = 0;
+			start_upstream_msec = 0;
 			
 			write(pipefd[1], buf, SENDOUTBUFSIZE);
 		}

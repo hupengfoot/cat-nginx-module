@@ -11,6 +11,10 @@
 #include <ngx_http.h>
 
 #define CATPREFIX "X-CAT-"
+#define CAT_ROOT_ID "X-CAT-ROOT-ID"
+#define CAT_PARENT_ID "X-CAT-PARENT-ID"
+#define CAT_ID "X-CAT-ID"
+
 #define SENDOUTBUFSIZE 400
 #define TAB "\t"
 #define NEWLINE "\n"
@@ -97,11 +101,11 @@ ngx_cat_filter_init(ngx_conf_t *cf)
 static ngx_int_t ngx_cat_header_filter(ngx_http_request_t *r){
 	ngx_http_cat_t  *conf;
 	conf = ngx_http_get_module_loc_conf(r, ngx_cat_filter_module);
-	
+
 	if(conf->enable == 1){
 		response_start_msec = ngx_current_msec;
 	}
-	
+
 	return ngx_http_next_header_filter(r);
 }
 
@@ -113,23 +117,13 @@ ngx_cat_body_filter(ngx_http_request_t *r, ngx_chain_t *chain)
 
 	if(conf->enable == 1){
 		send_times ++;
-		if(r->upstream->state->response_length || r->upstream->state->status == NGX_HTTP_BAD_GATEWAY || r->upstream->state->status == NGX_HTTP_SERVICE_UNAVAILABLE || r->upstream->state->status == NGX_HTTP_GATEWAY_TIME_OUT){
-			char buf[SENDOUTBUFSIZE];
-			int p = 0;
-			memset(buf, 0, SENDOUTBUFSIZE);
-			
-			size_t i;
-			for(i = 0; i < r->headers_out.headers.part.nelts; i++){
-				if(!ngx_strncmp(((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].key.data, CATPREFIX, strlen(CATPREFIX))){
-					ngx_memcpy(buf + p, ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.data, ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.len );
-					p = p + ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.len;
-					ngx_memcpy(buf + p, TAB, strlen(TAB)); 
-					p ++;
-				}
-			}
-			if( strncmp((buf + p - 1), TAB, strlen(TAB)) == 0 ){
-				memset(buf + p - 1,'\n', 1);
-			}
+		char buf[SENDOUTBUFSIZE];
+		memset(buf, 0, SENDOUTBUFSIZE);
+		int p = 0;
+
+		if(r->upstream == NULL){
+			ngx_memcpy(buf + p, "\t\t\n", strlen("\t\t\n"));
+			p = p + 3;
 
 			ngx_memcpy(buf + p, MODULE_NAME, strlen(MODULE_NAME));
 			p = p + strlen(MODULE_NAME);
@@ -141,6 +135,10 @@ ngx_cat_body_filter(ngx_http_request_t *r, ngx_chain_t *chain)
 			ngx_memcpy(buf + p, TAB, strlen(TAB));
 			p ++;
 
+			ngx_memcpy(buf + p, "http://", strlen("http://"));
+			p = p + strlen("http://");
+			ngx_memcpy(buf + p, r->headers_in.host->value.data, r->headers_in.host->value.len);
+			p = p + r->headers_in.host->value.len;
 			ngx_memcpy(buf + p, r->uri.data, r->uri.len);
 			p = p + r->uri.len;
 			ngx_memcpy(buf + p, TAB, strlen(TAB));
@@ -150,23 +148,19 @@ ngx_cat_body_filter(ngx_http_request_t *r, ngx_chain_t *chain)
 			p = strlen(buf);
 			ngx_memcpy(buf + p, TAB, strlen(TAB));
 			p ++;
-
-			ngx_memcpy(buf + p, r->upstream->uri.data, r->upstream->uri.len);
-			p = p + r->upstream->uri.len;
-			ngx_memcpy(buf + p, TAB, strlen(TAB));
-			p ++;
+			
+			ngx_memcpy(buf + p, "\t", strlen("\t"));
+			p = p + 1;
 
 			sprintf(buf + p, "%d", (int)r->header_size);
 			p = strlen(buf);
 			ngx_memcpy(buf + p, TAB, strlen(TAB));
 			p ++;
 
-			sprintf(buf + p, "%u", (unsigned int)r->upstream->state->response_length);
-			p = strlen(buf);
-			ngx_memcpy(buf + p, TAB, strlen(TAB));
-			p ++;
+			ngx_memcpy(buf + p, "\t", strlen("\t"));
+			p = p + 1;
 
-			sprintf(buf + p, "%u", send_times - 1);
+			sprintf(buf + p, "%u", send_times);
 			p = strlen(buf);
 			ngx_memcpy(buf + p, TAB, strlen(TAB));
 			p ++;
@@ -177,19 +171,9 @@ ngx_cat_body_filter(ngx_http_request_t *r, ngx_chain_t *chain)
 			ngx_memcpy(buf + p, TAB, strlen(TAB));
 			p ++;
 
-			sprintf(buf + p, "%lu", start_upstream_sec * 1000 + start_upstream_msec);
-			p = strlen(buf);
 			ngx_memcpy(buf + p, TAB, strlen(TAB));
 			p ++;
 
-			sprintf(buf + p, "%lu", response_start_msec);
-			p = strlen(buf);
-			ngx_memcpy(buf + p, TAB, strlen(TAB));
-			p ++;
-			response_start_msec = 0;
-
-			sprintf(buf + p, "%lu", start_upstream_sec * 1000 + start_upstream_msec + r->upstream->state->response_sec * 1000 + r->upstream->state->response_msec);
-			p = strlen(buf);
 			ngx_memcpy(buf + p, TAB, strlen(TAB));
 			p ++;
 
@@ -201,34 +185,150 @@ ngx_cat_body_filter(ngx_http_request_t *r, ngx_chain_t *chain)
 
 			ngx_memcpy(buf + p, NEWLINE, strlen(NEWLINE));
 			p ++;
-			start_upstream_sec = 0;
-			start_upstream_msec = 0;
-			
+
 			write(pipefd[1], buf, SENDOUTBUFSIZE);
 		}
 		else{
-			if(!start_upstream_sec){
-				start_upstream_sec = r->upstream->state->response_sec;
-				start_upstream_msec = r->upstream->state->response_msec;
+			if(r->upstream->state->response_length || r->upstream->state->status == NGX_HTTP_BAD_GATEWAY || r->upstream->state->status == NGX_HTTP_SERVICE_UNAVAILABLE || r->upstream->state->status == NGX_HTTP_GATEWAY_TIME_OUT){
+				size_t i;
+				int j = 0;
+				for(i = 0; i < r->headers_out.headers.part.nelts; i++){
+					if(!ngx_strncmp(((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].key.data, CAT_ROOT_ID, strlen(CAT_ROOT_ID))){
+						ngx_memcpy(buf + p, ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.data, ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.len );
+						p = p + ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.len;
+						ngx_memcpy(buf + p, TAB, strlen(TAB)); 
+						p ++;
+						j ++;
+					}
+					if(!ngx_strncmp(((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].key.data, CAT_PARENT_ID, strlen(CAT_PARENT_ID))){
+						ngx_memcpy(buf + p, ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.data, ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.len );
+						p = p + ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.len;
+						ngx_memcpy(buf + p, TAB, strlen(TAB)); 
+						p ++;
+						j ++;
+					}
+					if(!ngx_strncmp(((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].key.data, CAT_ID, strlen(CAT_ID))){
+						ngx_memcpy(buf + p, ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.data, ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.len );
+						p = p + ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.len;
+						ngx_memcpy(buf + p, TAB, strlen(TAB)); 
+						p ++;
+						j ++;
+					}
+				}
+				while ( j < 3 ){
+					strncpy( buf + p, TAB, strlen(TAB));
+					p ++;
+					j ++;
+				}
+				if( strncmp((buf + p - 1), TAB, strlen(TAB)) == 0 ){
+					memset(buf + p - 1,'\n', 1);
+				}
+
+				ngx_memcpy(buf + p, MODULE_NAME, strlen(MODULE_NAME));
+				p = p + strlen(MODULE_NAME);
+				ngx_memcpy(buf + p, TAB, strlen(TAB));
+				p ++;
+
+				sprintf(buf + p, "%u", (unsigned int)r->headers_out.status);
+				p = strlen(buf);
+				ngx_memcpy(buf + p, TAB, strlen(TAB));
+				p ++;
+				
+				ngx_memcpy(buf + p, "http://", strlen("http://"));
+				p = p + strlen("http://");
+				ngx_memcpy(buf + p, r->headers_in.host->value.data, r->headers_in.host->value.len);
+				p = p + r->headers_in.host->value.len;
+				ngx_memcpy(buf + p, r->uri.data, r->uri.len);
+				p = p + r->uri.len;
+				ngx_memcpy(buf + p, TAB, strlen(TAB));
+				p ++;
+
+				sprintf(buf + p, "%d", (int)r->request_length);
+				p = strlen(buf);
+				ngx_memcpy(buf + p, TAB, strlen(TAB));
+				p ++;
+
+				ngx_memcpy(buf + p, r->upstream->peer.name->data, r->upstream->peer.name->len);
+				p = p + r->upstream->peer.name->len;
+				ngx_memcpy(buf + p, r->upstream->uri.data, r->upstream->uri.len);
+				p = p + r->upstream->uri.len;
+				ngx_memcpy(buf + p, TAB, strlen(TAB));
+				p ++;
+
+				sprintf(buf + p, "%d", (int)r->header_size);
+				p = strlen(buf);
+				ngx_memcpy(buf + p, TAB, strlen(TAB));
+				p ++;
+
+				sprintf(buf + p, "%u", (unsigned int)r->upstream->state->response_length);
+				p = strlen(buf);
+				ngx_memcpy(buf + p, TAB, strlen(TAB));
+				p ++;
+
+				sprintf(buf + p, "%u", send_times - 1);
+				p = strlen(buf);
+				ngx_memcpy(buf + p, TAB, strlen(TAB));
+				p ++;
+				send_times = 0;
+
+				sprintf(buf + p, "%ld", (r->start_sec * 1000 + r->start_msec));
+				p = strlen(buf);
+				ngx_memcpy(buf + p, TAB, strlen(TAB));
+				p ++;
+
+				sprintf(buf + p, "%lu", start_upstream_sec * 1000 + start_upstream_msec);
+				p = strlen(buf);
+				ngx_memcpy(buf + p, TAB, strlen(TAB));
+				p ++;
+
+				sprintf(buf + p, "%lu", response_start_msec);
+				p = strlen(buf);
+				ngx_memcpy(buf + p, TAB, strlen(TAB));
+				p ++;
+				response_start_msec = 0;
+
+				sprintf(buf + p, "%lu", start_upstream_sec * 1000 + start_upstream_msec + r->upstream->state->response_sec * 1000 + r->upstream->state->response_msec);
+				p = strlen(buf);
+				ngx_memcpy(buf + p, TAB, strlen(TAB));
+				p ++;
+
+				unsigned long time = ngx_current_msec;
+				sprintf(buf + p, "%lu", time);
+				p = strlen(buf);
+				ngx_memcpy(buf + p, TAB, strlen(TAB));
+				p ++;
+
+				ngx_memcpy(buf + p, NEWLINE, strlen(NEWLINE));
+				p ++;
+				start_upstream_sec = 0;
+				start_upstream_msec = 0;
+
+				write(pipefd[1], buf, SENDOUTBUFSIZE);
+			}
+			else{
+				if(!start_upstream_sec){
+					start_upstream_sec = r->upstream->state->response_sec;
+					start_upstream_msec = r->upstream->state->response_msec;
+				}
 			}
 		}
 	}
-//	ngx_buf_t    *b;    
-//	b = ngx_calloc_buf(r->pool);    
-//	if (b == NULL) {
-//        return NGX_ERROR;    
-//	}
-//    b->pos = (u_char *) "<!-- Served by Nginx -->";
-//    b->last = b->pos + sizeof("<!-- Served by Nginx -->") - 1;
-//	b->memory = 1;
-//    ngx_chain_t   *added_link;    
-//	added_link = ngx_alloc_chain_link(r->pool);   
-//	if (added_link == NULL)        
-//		return NGX_ERROR;    
-//	added_link->buf = b;    
-//	added_link->next = NULL;
-//    chain->next = added_link;
-//    chain->buf->last_buf = 0;
+	//	ngx_buf_t    *b;    
+	//	b = ngx_calloc_buf(r->pool);    
+	//	if (b == NULL) {
+	//        return NGX_ERROR;    
+	//	}
+	//    b->pos = (u_char *) "<!-- Served by Nginx -->";
+	//    b->last = b->pos + sizeof("<!-- Served by Nginx -->") - 1;
+	//	b->memory = 1;
+	//    ngx_chain_t   *added_link;    
+	//	added_link = ngx_alloc_chain_link(r->pool);   
+	//	if (added_link == NULL)        
+	//		return NGX_ERROR;    
+	//	added_link->buf = b;    
+	//	added_link->next = NULL;
+	//    chain->next = added_link;
+	//    chain->buf->last_buf = 0;
 	return ngx_http_next_body_filter(r, chain);
 }
 

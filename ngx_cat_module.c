@@ -14,6 +14,7 @@
 #define CAT_ROOT_ID "X-CAT-ROOT-ID"
 #define CAT_PARENT_ID "X-CAT-PARENT-ID"
 #define CAT_ID "X-CAT-ID"
+#define VARNISH_AGE "Age"
 
 #define SENDOUTBUFSIZE 400
 #define TAB "\t"
@@ -200,19 +201,28 @@ ngx_cat_body_filter(ngx_http_request_t *r, ngx_chain_t *chain)
 						p ++;
 						j ++;
 					}
-					if(!ngx_strncmp(((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].key.data, CAT_PARENT_ID, strlen(CAT_PARENT_ID))){
+					else if(!ngx_strncmp(((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].key.data, CAT_PARENT_ID, strlen(CAT_PARENT_ID))){
 						ngx_memcpy(buf + p, ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.data, ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.len );
 						p = p + ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.len;
 						ngx_memcpy(buf + p, TAB, strlen(TAB)); 
 						p ++;
 						j ++;
 					}
-					if(!ngx_strncmp(((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].key.data, CAT_ID, strlen(CAT_ID))){
+					else if(!ngx_strncmp(((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].key.data, CAT_ID, strlen(CAT_ID))){
 						ngx_memcpy(buf + p, ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.data, ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.len );
 						p = p + ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.len;
 						ngx_memcpy(buf + p, TAB, strlen(TAB)); 
 						p ++;
 						j ++;
+					}
+					else if(!ngx_strncmp(((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].key.data, VARNISH_AGE, strlen(VARNISH_AGE))){
+						if(ngx_strncmp(((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.data, "0", ((ngx_table_elt_t*)r->headers_out.headers.part.elts)[i].value.len)){
+							p = 0;
+							memset(buf, 0, SENDOUTBUFSIZE);
+							ngx_memcpy(buf + p, "\t\t\n", strlen("\t\t\n"));
+							p = p + strlen("\t\t\n");
+							break;
+						}
 					}
 				}
 				while ( j < 3 ){
@@ -313,22 +323,6 @@ ngx_cat_body_filter(ngx_http_request_t *r, ngx_chain_t *chain)
 			}
 		}
 	}
-	//	ngx_buf_t    *b;    
-	//	b = ngx_calloc_buf(r->pool);    
-	//	if (b == NULL) {
-	//        return NGX_ERROR;    
-	//	}
-	//    b->pos = (u_char *) "<!-- Served by Nginx -->";
-	//    b->last = b->pos + sizeof("<!-- Served by Nginx -->") - 1;
-	//	b->memory = 1;
-	//    ngx_chain_t   *added_link;    
-	//	added_link = ngx_alloc_chain_link(r->pool);   
-	//	if (added_link == NULL)        
-	//		return NGX_ERROR;    
-	//	added_link->buf = b;    
-	//	added_link->next = NULL;
-	//    chain->next = added_link;
-	//    chain->buf->last_buf = 0;
 	return ngx_http_next_body_filter(r, chain);
 }
 

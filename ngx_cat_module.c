@@ -312,8 +312,11 @@ ngx_cat_body_filter(ngx_http_request_t *r, ngx_chain_t *chain)
 				p ++;
 				start_upstream_sec = 0;
 				start_upstream_msec = 0;
+				
+				int n;
+				n = write(pipefd[1], buf, SENDOUTBUFSIZE);
+				ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "write success %d", n);
 
-				write(pipefd[1], buf, SENDOUTBUFSIZE);
 			}
 			else{
 				if(!start_upstream_sec){
